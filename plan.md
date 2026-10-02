@@ -160,11 +160,12 @@ A single flat view (`export_highlights`) joins the above into the export format,
 
 ```
 transcript_participant, transcript_interviewer, transcript_topic, transcript_session_datetime,
-speaker_display_name, start_ms, end_ms, highlight_text, note, tags (comma-joined), properties (JSON string),
-highlight_uri
+speakers (JSON array of display names covering the highlight), start_ms, end_ms,
+highlight_text (speaker-marked: each speaker's portion prefixed with "[Name] ", boundaries sliced by char offsets),
+note, tags (comma-joined), properties (JSON string), highlight_uri
 ```
 
-DuckDB's `COPY (SELECT * FROM export_highlights) TO 'highlights.csv' (HEADER, DELIMITER ',')` does this natively — worth building the view once and having export just be that one `COPY` statement.
+Rows are computed in JS (`speakerMarkedText`/`spanSpeakers` in `src/lib/highlight.ts`) because per-speaker portioning with char-offset slicing is awkward in SQL; DuckDB still writes the CSV via a temp table + `COPY ... TO`, keeping its quoting. Speaker portions are derived at export time, not stored, so renames stay current and no schema change was needed.
 
 ### 5.7 `meta`
 
@@ -236,7 +237,7 @@ Since spans can overlap, the transcript needs a rendering strategy that doesn't 
 1. **Desktop shell vs. browser app — RESOLVED.** Browser-based, DuckDB-WASM + OPFS + File System Access API (§3.1, §3.4).
 2. **Cross-transcript speaker identity:** today `speaker_id` is stable *within* a transcript. When multi-transcript lands, will speakers be matched across transcripts automatically (e.g. same interviewer tagged consistently), manually merged by the user, or kept fully separate per transcript? Doesn't need an answer now, but the `speaker` table's `transcript_id` column means "merge these speaker rows" is the kind of operation that should stay possible.
 3. **VTT speaker tagging format — RESOLVED via sample data.** Samples in `sample-data/` are Google Meet exports: plain cue text with a `Speaker Name: ` prefix (real names, so `speaker.raw_label` holds them directly), numbered cues, `HH:MM:SS.mmm --> HH:MM:SS.mmm` timestamps, and **no** `<v>` tags, NOTE, or STYLE blocks (~500 cues per ~60 min session). The parser should still tolerate `<v>` tags and untagged cues defensively (§5.3 allows null speaker), but the primary format is confirmed. The sample set conveniently covers the media cases: one VTT-only file (no-media path) and one folder with both `.mp4` and `.m4a` (video-preferred path).
-4. **Sub-segment highlight precision — RESOLVED for slice 1.** Highlights snap to whole segments. The char-offset columns (§5.4) are still created and populated with `0` from day one, so upgrading to sub-segment precision later is a behavior change in the UI layer, not a schema migration.
+4. **Sub-segment highlight precision — RESOLVED for slice 1, implemented on branch `slice-2-going-multimedia`.** Highlights record exact char offsets into the boundary segments (the §5.4 columns, populated since day one); middle segments of a multi-segment highlight are fully covered, and rendering splits text at highlight boundaries so overlapping partial highlights nest. Convention: offset 0 means "from the start"/"to the end", so legacy 0/0 rows still render as whole segments.
 5. **Tray ordering when highlights overlap:** if two highlights start at the same position, what determines tray order — creation time, or span length? Minor, but worth a decision.
 
 ## 10. Suggested Build Phases

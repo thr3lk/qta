@@ -51,6 +51,9 @@ npx tsc --noEmit # typecheck (no separate lint is configured)
   to them. After any upgrade, re-run the e2e persistence step.
 - **Durability requires `CHECKPOINT`.** Browser tabs don't close cleanly;
   every mutating DB method ends with `checkpoint()`. Don't remove these.
+  The checkpoint must run *before* any `return` — an unreachable
+  `await checkpoint()` after `return` silently skipped durability for new
+  highlights and tags once (found via e2e persistence failure).
 - **Persistence API is `db.open({path: 'opfs://…'})`**, not
   `ATTACH 'opfs://…'`. `db.dropFiles()` deletes the file outright.
 - **One exclusive OPFS handle per file** — only one tab may hold the DB open.
@@ -64,14 +67,42 @@ npx tsc --noEmit # typecheck (no separate lint is configured)
 - **Re-import policy (plan §3.5):** imports are one-directional and manual;
   a re-import creates a *new* transcript row, the old data stays. Never
   dedupe or overwrite transcript rows on import.
-- **Whole-segment highlights only** (plan §9.4): char-offset columns exist and
-  are written as `0`; sub-segment precision is a future UI-layer change.
+- **Sub-segment highlight precision** (upgrades plan §9.4): selections record
+  exact char offsets into the boundary segments (`start_char_offset`,
+  `end_char_offset`); middle segments of a multi-segment highlight are fully
+  covered. Conventions (see `src/lib/highlight.ts`): offset 0 = "from the
+  start" / "to the end"; rendering splits each segment into atoms at
+  highlight boundaries (`splitAtoms`) so overlapping partial highlights nest
+  correctly. A selection that starts at a segment's last char or ends at its
+  first char shrinks out the empty boundary segment. Legacy rows stored as
+  0/0 keep rendering as whole segments.
 - **`highlight_text` for multi-segment highlights joins cue texts with `\n`**
-  (preserve cue breaks — question/answer pairing matters downstream).
+  (preserve cue breaks — question/answer pairing matters downstream). The CSV
+  export goes further: `highlight_text` is speaker-marked (each speaker's
+  portion prefixed `[Name] `, boundaries sliced by char offsets) and the
+  `speakers` column is a JSON array of display names covering the highlight
+  (replaces the old single `speaker_display_name`). Portioning is derived at
+  export time from segments + offsets (`speakerMarkedText`/`spanSpeakers` in
+  `src/lib/highlight.ts`) — no annotation schema change; rows are staged in a
+  DuckDB temp table and written with `COPY` so quoting stays native.
 - **Media pairing** matches `baseStem(name)` (extension stripped, `.transcript`
-  suffix stripped, lowercased). Media file *handles* don't persist across
-  sessions — the DB stores the name only, and `MediaPlayer` shows an attach
-  prompt when the transcript has a media name but no in-session file.
+  suffix stripped, lowercased). The DB stores the media *name* only; the file
+  itself is persisted as a blob in IndexedDB (`qta-media`, keyed by
+  transcript id — see `src/lib/mediaStore.ts`) and restored automatically on
+  `openTranscript`. If no blob is stored (e.g. fresh browser profile), the
+  player shows the attach prompt instead. Orphan blobs are pruned on boot;
+  deleting a transcript deletes its blob.
+- **Highlight-select playback behavior** is a user preference ("On select" in
+  the tray header): `play-from` (seek + autoplay, the default),
+  `go-to` (seek, paused), `play-only` (seek + autoplay, pause at the
+  selection's end). Stored in `localStorage` (`qta.playbackMode`). The mode
+  governs every selection surface: tray cards, transcript clicks on a segment
+  covered by exactly one highlight, and plain unhighlighted segment clicks
+  (range = that segment). Segments with 2+ highlights still seek per mode to
+  the segment range and open the chooser; picking from the chooser applies the
+  mode to that highlight. All paths go through `playRange` in `store.ts`
+  (`goToAnnotation`/`goToSegment`); controller `seek(ms, opts)` clears any
+  pending `play-only` stop boundary on manual play/pause or scrubbing.
 - **e2e asserts through rendered UI**, not DB internals: notes only render in
   the expanded editor, so a card must be clicked before asserting note text.
   Media e2e uses a generated 70s WAV (in tempdir) because headless Chromium
@@ -81,31 +112,24 @@ npx tsc --noEmit # typecheck (no separate lint is configured)
   storage it exercises is per-origin: run tests against the built `dist/` on
   localhost:5200 (the port is fixed in vite.config.ts).
 
-## Known open issue (as of last session, branch `slice-2-going-multimedia`)
+## Resolved: library delete "hang" (branch `slice-2-going-multimedia`)
 
-**WIP: library view + recording delete.** The Library tab (list all
-transcripts with highlight/note counts, delete) is built and committed as WIP,
-but the e2e smoke test fails at the delete step: the first DELETE statement
-hangs silently (worker never responds, no error surfaced) — but only in the
-e2e's exact third-browser-session flow. Every isolated reproduction passes:
+The e2e delete-step failure reported last session had two overlapping causes,
+neither of them an actual silent DuckDB hang in the end:
 
-- in-memory deletes, OPFS deletes, full schema + 500 segments, multiple
-  reopen/checkpoint cycles: all pass (`spike/delete-full.js`)
-- the same delete probed inside the live app in a single session: passes
-  (`app/e2e/debug-delete.mjs`)
+1. **UI bug (fixed):** `App.tsx` rendered the welcome screen as the `<Show>`
+   fallback whenever the view wasn't `review`, so `welcome-import` existed the
+   moment the Library tab opened. The e2e's "wait for welcome" step therefore
+   passed instantly and asserted while the delete was still in flight, reading
+   as "delete hung / recording still listed". Rule: the welcome screen renders
+   only when `state.phase === "welcome"`; don't use view-switching `<Show>`
+   fallbacks that leak across tabs.
+2. **Flaky DuckDB-WASM worker unresponsiveness (mitigated):** across many
+   restart/export cycles the worker occasionally stops answering queries.
+   Root cause in duckdb-wasm/OPFS not identified; isolated repros never catch
+   it. `db.ts` now has a watchdog: every `query()` races a 10s timeout, and on
+   timeout the worker is terminated, the database reopened, and the query
+   retried once (retries are safe: all mutating flows are idempotent deletes/
+   inserts keyed by fresh UUIDs). If you see `qta: database worker
+   unresponsive` in the console, the watchdog fired and recovered.
 
-Debug tooling left in place (all temporary, remove when resolved):
-- `db.ts` uses `ConsoleLogger(INFO)` and exposes `window.__qtaDebug`
-  (raw `query`, `newConnection`, `reopen`) — the reopen probe was never
-  completed; that's the next thing to try (does a fresh worker unstick it?)
-- `store.deleteTranscript` / `db.deleteTranscript` carry DELETE_DBG / DEL step
-  console.debug instrumentation
-- `app/e2e/debug-delete.mjs` is the focused repro/probe script (last run
-  crashed on a script bug after `page = page3`, fixed; unverified since)
-- e2e smoke has console logging + STALE CONTEXT dump at the delete assertion
-
-Unproven hypotheses: state accumulated across 3 OPFS session cycles in the
-app; the export `COPY` → JS `removeEntry` interaction; something in
-`transcriptStats`/`listTranscripts` before the delete. The `query()` helper
-has no timeout — a hung worker promise waits forever; consider a watchdog
-that recreates the worker and retries once.
