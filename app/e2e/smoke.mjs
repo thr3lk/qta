@@ -183,6 +183,11 @@ const ctx3 = await chromium.launchPersistentContext(userDataDir, {
 });
 const page3 = await ctx3.newPage();
 page3.on("pageerror", (e) => console.error("PAGE ERROR:", e));
+page3.on("console", (m) => console.log("[console]", m.type(), m.text().slice(0, 120)));
+page3.on("dialog", (d) => {
+  console.log("[dialog]", d.type(), d.message().slice(0, 80));
+  void d.accept();
+});
 const fail3 = async (msg) => {
   console.error("E2E FAIL:", msg);
   await ctx3.close();
@@ -203,6 +208,27 @@ if (!csv.includes("highlight_text")) await fail3("csv missing header");
 if (!csv.includes("follow-up")) await fail3("csv missing tag");
 if (!csv.includes("qda://transcript/")) await fail3("csv missing highlight_uri");
 console.log(`export ok: ${download.suggestedFilename()}, ${csv.split("\n").length - 1} data rows`);
+
+// 7. library view: counts visible, delete removes the recording
+await page3.click('[data-testid="tab-library"]');
+await page3.waitForSelector('[data-testid="library-row"]', { timeout: 60000 });
+await page3.waitForFunction(
+  () => document.querySelector('[data-testid="library-counts"]')?.textContent.includes("1 highlights"),
+  { timeout: 15000 },
+);
+const counts = await page3.textContent('[data-testid="library-counts"]');
+if (!counts.includes("1 notes")) {
+  await fail3(`library counts wrong: "${counts}"`);
+}
+await page3.click('[data-testid="library-delete"]');
+await page3.waitForSelector('[data-testid="welcome-import"]', { timeout: 60000 });
+const postDelete = await page3.textContent("body");
+if (postDelete.includes("GMT20250115")) {
+  const m = postDelete.match(/.{0,120}GMT20250115.{0,120}/s);
+  console.error("STALE CONTEXT:", m && m[0]);
+  await fail3("recording still listed after delete");
+}
+console.log("library view + delete: ok");
 await ctx3.close();
 
 server.close();

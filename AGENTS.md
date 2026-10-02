@@ -80,3 +80,32 @@ npx tsc --noEmit # typecheck (no separate lint is configured)
 - The e2e test wipes its own browser profile (`.pw-profile`) but the browser
   storage it exercises is per-origin: run tests against the built `dist/` on
   localhost:5200 (the port is fixed in vite.config.ts).
+
+## Known open issue (as of last session, branch `slice-2-going-multimedia`)
+
+**WIP: library view + recording delete.** The Library tab (list all
+transcripts with highlight/note counts, delete) is built and committed as WIP,
+but the e2e smoke test fails at the delete step: the first DELETE statement
+hangs silently (worker never responds, no error surfaced) — but only in the
+e2e's exact third-browser-session flow. Every isolated reproduction passes:
+
+- in-memory deletes, OPFS deletes, full schema + 500 segments, multiple
+  reopen/checkpoint cycles: all pass (`spike/delete-full.js`)
+- the same delete probed inside the live app in a single session: passes
+  (`app/e2e/debug-delete.mjs`)
+
+Debug tooling left in place (all temporary, remove when resolved):
+- `db.ts` uses `ConsoleLogger(INFO)` and exposes `window.__qtaDebug`
+  (raw `query`, `newConnection`, `reopen`) — the reopen probe was never
+  completed; that's the next thing to try (does a fresh worker unstick it?)
+- `store.deleteTranscript` / `db.deleteTranscript` carry DELETE_DBG / DEL step
+  console.debug instrumentation
+- `app/e2e/debug-delete.mjs` is the focused repro/probe script (last run
+  crashed on a script bug after `page = page3`, fixed; unverified since)
+- e2e smoke has console logging + STALE CONTEXT dump at the delete assertion
+
+Unproven hypotheses: state accumulated across 3 OPFS session cycles in the
+app; the export `COPY` → JS `removeEntry` interaction; something in
+`transcriptStats`/`listTranscripts` before the delete. The `query()` helper
+has no timeout — a hung worker promise waits forever; consider a watchdog
+that recreates the worker and retries once.

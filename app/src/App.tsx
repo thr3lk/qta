@@ -4,6 +4,7 @@ import TranscriptView from "./components/TranscriptView";
 import Tray from "./components/Tray";
 import ImportDialog from "./components/ImportDialog";
 import MediaPlayer from "./components/MediaPlayer";
+import Library from "./components/Library";
 import {
   boot,
   exportCsv,
@@ -11,6 +12,7 @@ import {
   mediaHidden,
   openTranscript,
   setMediaHidden,
+  showView,
   state,
 } from "./lib/store";
 import { downloadBytes, exportFileName } from "./lib/export";
@@ -49,6 +51,24 @@ export default function App(): JSX.Element {
     <div class="app">
       <header class="app-header">
         <h1>QTA Transcript Analyzer</h1>
+        <Show when={state.phase === "ready" || state.transcripts.length > 0}>
+          <nav class="view-tabs">
+            <button
+              classList={{ active: state.view === "review" }}
+              data-testid="tab-review"
+              onClick={() => showView("review")}
+            >
+              Review
+            </button>
+            <button
+              classList={{ active: state.view === "library" }}
+              data-testid="tab-library"
+              onClick={() => showView("library")}
+            >
+              Library
+            </button>
+          </nav>
+        </Show>
         <Show when={state.phase === "ready"}>
           <select
             data-testid="transcript-select"
@@ -88,7 +108,7 @@ export default function App(): JSX.Element {
         fallback={<div class="loading">Loading database…</div>}
       >
         <Show
-          when={state.phase === "ready"}
+          when={state.phase === "ready" && state.view === "review"}
           fallback={
             <div class="welcome">
               <h2>No transcripts yet</h2>
@@ -109,6 +129,9 @@ export default function App(): JSX.Element {
             </div>
             <Tray filter={filter()} setFilter={setFilter} />
           </main>
+        </Show>
+        <Show when={state.view === "library" && state.phase !== "welcome"}>
+          <Library />
         </Show>
       </Show>
       <ImportDialog open={importOpen()} onClose={() => setImportOpen(false)} />

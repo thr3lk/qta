@@ -105,6 +105,8 @@ export interface Workspace {
     mediaName?: string | null,
   ): Promise<string>;
   setMediaPath(transcriptId: string, mediaName: string | null): Promise<void>;
+  transcriptStats(): Promise<Map<string, { highlights: number; notes: number }>>;
+  deleteTranscript(transcriptId: string): Promise<void>;
   loadTranscript(transcriptId: string): Promise<TranscriptRow | null>;
   loadSpeakers(transcriptId: string): Promise<SpeakerRow[]>;
   loadSegments(transcriptId: string): Promise<SegmentRow[]>;
@@ -144,7 +146,7 @@ async function openWorkspace(): Promise<Workspace> {
     pthreadWorker: null,
   } as unknown as duckdb.DuckDBBundle;
   const worker = new Worker(bundle.mainWorker as string);
-  const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
+  const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.INFO);
   const db = new duckdb.AsyncDuckDB(logger, worker);
   await db.instantiate(bundle.mainModule);
   await db.open({
@@ -399,6 +401,45 @@ async function openWorkspace(): Promise<Workspace> {
       });
     },
 
+    async transcriptStats() {
+      const rows = await query(`
+        SELECT CAST(t.transcript_id AS VARCHAR) AS "transcriptId",
+               count(a.annotation_id) AS "highlights",
+               count(CASE WHEN COALESCE(a.note, '') <> '' THEN 1 END) AS "notes"
+        FROM transcript t
+        LEFT JOIN annotation a ON a.transcript_id = t.transcript_id
+        GROUP BY t.transcript_id
+      `);
+      const stats = new Map();
+      for (const r of rows) {
+        stats.set(String(r.transcriptId), {
+          highlights: Number(r.highlights),
+          notes: Number(r.notes),
+        });
+      }
+      return stats;
+    },
+
+    async deleteTranscript(transcriptId) {
+      console.debug("DEL step: annotation_tag");
+      await query(`
+        DELETE FROM annotation_tag
+        WHERE annotation_id IN (
+          SELECT annotation_id FROM annotation WHERE transcript_id = '${transcriptId}'
+        )
+      `);
+      console.debug("DEL step: annotation");
+      await query(`DELETE FROM annotation WHERE transcript_id = '${transcriptId}'`);
+      console.debug("DEL step: segments");
+      await query(`DELETE FROM transcript_segment WHERE transcript_id = '${transcriptId}'`);
+      console.debug("DEL step: speakers");
+      await query(`DELETE FROM speaker WHERE transcript_id = '${transcriptId}'`);
+      console.debug("DEL step: transcript");
+      await query(`DELETE FROM transcript WHERE transcript_id = '${transcriptId}'`);
+      console.debug("DEL step: checkpoint");
+      await checkpoint();
+    },
+
     async loadTags() {
       const rows = await query(`
         SELECT CAST(t.tag_id AS VARCHAR) AS "tagId", t.name AS "name", t.color AS "color"
@@ -548,6 +589,24 @@ async function openWorkspace(): Promise<Workspace> {
       out.set(bom, 0);
       out.set(bytes, bom.length);
       return out;
+    },
+  };
+
+  (window as unknown as Record<string, unknown>).__qtaDebug = {
+    query,
+    newConnection: () => db.connect(),
+    reopen: async () => {
+      conn.close();
+      await db.terminate();
+      const w = new Worker(bundle.mainWorker as string);
+      const fresh = new duckdb.AsyncDuckDB(logger, w);
+      await fresh.instantiate(bundle.mainModule);
+      await fresh.open({
+        path: DB_PATH,
+        accessMode: duckdb.DuckDBAccessMode.READ_WRITE,
+        opfs: { fileHandling: "auto" },
+      });
+      return fresh.connect();
     },
   };
 

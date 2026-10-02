@@ -13,6 +13,8 @@ import { guessParticipantName, guessSessionDatetime, parseVtt } from "./vtt";
 
 export interface AppState {
   phase: "loading" | "welcome" | "ready";
+  view: "review" | "library";
+  stats: Map<string, { highlights: number; notes: number }>;
   transcripts: TranscriptRow[];
   activeId: string | null;
   transcript: TranscriptRow | null;
@@ -44,6 +46,8 @@ export function seekMedia(ms: number): void {
 
 export const [state, setState] = createStore<AppState>({
   phase: "loading",
+  view: "review",
+  stats: new Map(),
   transcripts: [],
   activeId: null,
   transcript: null,
@@ -77,6 +81,46 @@ export async function boot(): Promise<void> {
 
 export async function refreshTranscripts(): Promise<void> {
   setState("transcripts", await workspace().listTranscripts());
+}
+
+export function showView(view: "review" | "library"): void {
+  setState("view", view);
+  if (view === "library") void refreshLibrary();
+}
+
+export async function refreshLibrary(): Promise<void> {
+  await refreshTranscripts();
+  setState("stats", await workspace().transcriptStats());
+}
+
+export async function deleteTranscript(transcriptId: string): Promise<void> {
+  console.debug("DELETE_DBG called", transcriptId);
+  const label =
+    state.transcripts.find((t) => t.transcriptId === transcriptId)?.sourceVttPath ??
+    transcriptId;
+  const stats = state.stats.get(transcriptId);
+  const count = stats ? stats.highlights : 0;
+  console.debug("DELETE_DBG before confirm");
+  if (
+    !window.confirm(
+      `Delete recording "${label}" and its ${count} highlight${count === 1 ? "" : "s"}? This cannot be undone.`,
+    )
+  ) {
+    return;
+  }
+  await workspace().deleteTranscript(transcriptId);
+  console.debug("DELETE_DBG rows:", state.transcripts.length, "activeMatch:", state.activeId === transcriptId);
+  await refreshLibrary();
+  console.debug("DELETE_DBG postRefresh:", state.transcripts.length, "phase:", state.phase);
+  if (state.activeId === transcriptId) {
+    const next = state.transcripts[0];
+    if (next) {
+      await openTranscript(next.transcriptId);
+      setState("view", "review");
+    } else {
+      setState({ activeId: null, transcript: null, phase: "welcome", view: "library" });
+    }
+  }
 }
 
 export async function openTranscript(transcriptId: string): Promise<void> {

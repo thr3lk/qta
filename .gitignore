@@ -3,3 +3,4 @@ sample-data/
 app/node_modules/
 app/dist/
 app/.pw-profile*
+app/.pw-debug/
