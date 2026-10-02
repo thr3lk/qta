@@ -22,3 +22,23 @@ export function baseStem(name: string): string {
   stem = stem.replace(/\.transcript$/, "");
   return stem;
 }
+
+export function mediaMatches(vttName: string, mediaName: string): boolean {
+  const v = baseStem(vttName);
+  const m = baseStem(mediaName);
+  return m === v || m.startsWith(`${v}_`);
+}
+
+export function pickMedia<T extends { name: string }>(
+  vttName: string,
+  candidates: T[],
+): T | null {
+  const matches = candidates.filter((c) => mediaMatches(vttName, c.name));
+  if (matches.length === 0) return null;
+  const score = (c: T): number => {
+    const vttStem = baseStem(vttName);
+    const exact = baseStem(c.name) === vttStem ? 1 : 0;
+    return (isVideoFile(c.name) ? 2 : 0) + exact;
+  };
+  return [...matches].sort((a, b) => score(b) - score(a))[0];
+}

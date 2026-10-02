@@ -1,7 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "solid-js";
 import { importVttFile, state } from "../lib/store";
-import { baseStem, isMediaFile, isVideoFile } from "../lib/media";
+import { isMediaFile, mediaMatches, pickMedia } from "../lib/media";
 
 interface ListedFile {
   name: string;
@@ -16,11 +16,11 @@ function pairMedia(vttName: string, mediaFiles: File[]): {
   media: File | null;
   conflict: boolean;
 } {
-  const stem = baseStem(vttName);
-  const matches = mediaFiles.filter((m) => baseStem(m.name) === stem);
-  if (matches.length === 0) return { media: null, conflict: false };
-  const video = matches.find((m) => isVideoFile(m.name));
-  return { media: video ?? matches[0], conflict: matches.length > 1 };
+  const matches = mediaFiles.filter((m) => mediaMatches(vttName, m.name));
+  return {
+    media: pickMedia(vttName, mediaFiles),
+    conflict: matches.length > 1,
+  };
 }
 
 export default function ImportDialog(props: { open: boolean; onClose: () => void }): JSX.Element {
@@ -114,7 +114,7 @@ export default function ImportDialog(props: { open: boolean; onClose: () => void
                     <span class="badge">
                       {" "}
                       + {entry.media!.name}
-                      <Show when={entry.mediaConflict}> (video preferred)</Show>
+                      <Show when={entry.mediaConflict}> (multiple matches)</Show>
                     </span>
                   </Show>
                 </span>
