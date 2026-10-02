@@ -70,7 +70,7 @@ export default function App(): JSX.Element {
           <span class="status-line" data-testid="export-status">
             {exportStatus()}
           </span>
-          <Show when={state.transcript?.sourceMediaPath && mediaFile()}>
+          <Show when={mediaFile() !== null}>
             <button
               data-testid="media-toggle"
               onClick={() => setMediaHidden(!mediaHidden())}

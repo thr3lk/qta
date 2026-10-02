@@ -48,9 +48,8 @@ export default function MediaPlayer(): JSX.Element {
 
   const media = () => mediaFile();
   const mediaName = () => state.transcript?.sourceMediaPath ?? "";
-  const showBar = () =>
-    state.phase === "ready" && !mediaHidden() && (media() !== null || mediaName() !== "");
-  const needsAttach = () => media() === null && mediaName() !== "";
+  const showBar = () => state.phase === "ready" && !mediaHidden();
+  const needsAttach = () => media() === null;
 
   const mediaProps = {
     onPlay: () => setPlaying(true),
@@ -67,7 +66,9 @@ export default function MediaPlayer(): JSX.Element {
           fallback={
             <div class="media-attach" data-testid="media-attach">
               <span class="status-line">
-                Media from your last session: {mediaName()}
+                <Show when={mediaName() !== ""} fallback={<>No media attached</>}>
+                  Media from your last session: {mediaName()}
+                </Show>
               </span>
               <label class="attach-label">
                 Attach media
