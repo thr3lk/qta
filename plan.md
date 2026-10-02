@@ -252,7 +252,7 @@ Deliberately excludes all media handling, but nothing here should preclude addin
 
 ### 10.2 Later slices
 
-1. **Media integration:** attach optional video/audio (video preferred when both exist); media toggle for transcript-only mode; play/seek from a clicked segment or highlight; collapsed-by-default player per §7.1.
+1. **Going multimedia:** attach an optional paired video/audio file at import (pair media to VTT by matching filename stem, treating `.transcript.vtt`'s extra suffix as strippable; video preferred when both exist). Playback is driven from transcript interactions — clicking a segment or highlight seeks and plays — while the player itself stays secondary: collapsed by default per §7.1, with a toggle to hide media entirely and work transcript-only. Browser file handles don't survive sessions (§8), so a transcript with a stored media name but no in-session file shows an "attach media" affordance instead of silently failing.
 2. **Views:** highlights-only view; highlight URI resolution/deep-linking.
 3. **Polish/perf pass:** virtualized transcript rendering, tray/transcript sync scrolling, project-folder portability check (move the folder, reopen, confirm nothing breaks).
 
