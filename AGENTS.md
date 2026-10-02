@@ -9,8 +9,10 @@ Load a `.vtt` transcript (video/audio optional, deferred), highlight spans,
 tag/annotate them, export CSV. Full product plan: `plan.md` (authoritative for
 architecture and schema decisions — read it before making design changes).
 
-- **Slice 1 (current scope):** transcript-only. No media handling yet; don't
-  add it (see plan §10.1). Schema already reserves `source_media_path`.
+- **Slice 1 (shipped) + slice 2 "going multimedia" (current scope):** slice 1
+  is transcript-only annotation; slice 2 adds optional paired video/audio
+  (stem-matched at import, video preferred), click-to-seek playback, a
+  collapsed-by-default player, and a media-off toggle. See plan §10.
 - **Stack (decided, plan §3):** SolidJS + Vite + TypeScript, DuckDB-WASM with
   OPFS persistence. Fallback to Preact only if Solid proves blocking.
 
@@ -18,10 +20,12 @@ architecture and schema decisions — read it before making design changes).
 
 - `app/` — the application (the only buildable code)
   - `src/lib/vtt.ts` — VTT parser (pure, unit-tested)
+  - `src/lib/media.ts` — media pairing helpers (stem matching, video/audio
+    classification; unit-tested)
   - `src/lib/db.ts` — DuckDB-WASM setup, schema (plan §5), all SQL
   - `src/lib/store.ts` — Solid store + actions; the only module components
     talk to for state
-  - `src/components/` — `TranscriptView`, `Tray`, `ImportDialog`
+  - `src/components/` — `TranscriptView`, `Tray`, `ImportDialog`, `MediaPlayer`
   - `e2e/smoke.mjs` — Playwright smoke test (needs `vite build` first)
 - `spike/` — DuckDB-WASM+OPFS feasibility spike; `spike/FINDINGS.md` documents
   persistence gotchas. Not part of the app; don't import from it.
@@ -64,8 +68,15 @@ npx tsc --noEmit # typecheck (no separate lint is configured)
   are written as `0`; sub-segment precision is a future UI-layer change.
 - **`highlight_text` for multi-segment highlights joins cue texts with `\n`**
   (preserve cue breaks — question/answer pairing matters downstream).
+- **Media pairing** matches `baseStem(name)` (extension stripped, `.transcript`
+  suffix stripped, lowercased). Media file *handles* don't persist across
+  sessions — the DB stores the name only, and `MediaPlayer` shows an attach
+  prompt when the transcript has a media name but no in-session file.
 - **e2e asserts through rendered UI**, not DB internals: notes only render in
   the expanded editor, so a card must be clicked before asserting note text.
+  Media e2e uses a generated 70s WAV (in tempdir) because headless Chromium
+  can't be relied on for AAC/H.264; seek assertions are against real cue
+  timestamps (segment index 5 starts at 40.1s in the sample).
 - The e2e test wipes its own browser profile (`.pw-profile`) but the browser
   storage it exercises is per-origin: run tests against the built `dist/` on
   localhost:5200 (the port is fixed in vite.config.ts).

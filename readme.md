@@ -21,15 +21,19 @@ npm run dev      # then open http://localhost:5200
 
 first run: click "Import a transcript…", pick the folder (or files) containing
 your `.vtt` transcripts (see `sample-data/` for examples), and import one.
-select text in the transcript to highlight, tag, and annotate; "Export CSV"
-downloads the highlights.
+a video or audio file whose name matches the transcript is attached
+automatically (video wins if both exist). select text in the transcript to
+highlight, tag, and annotate; clicking a segment or highlight plays the
+recording from that moment; "Export CSV" downloads the highlights.
 
 your work is stored locally in the browser (OPFS-backed DuckDB, one file per
 origin) and survives restarts. notes:
 
 - only one tab should have the app open at a time (single DB handle)
 - re-importing a VTT creates a new copy in the database; the old one stays
-- no video/audio in this slice yet — transcript only
+- media files are re-attached after a browser restart (browsers don't persist
+  file access); the player shows an "attach media" prompt when needed
+- the "Hide media" toggle turns off playback entirely for transcript-only work
 
 # development
 
