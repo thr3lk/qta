@@ -10,6 +10,7 @@ import type {
   TranscriptRow,
 } from "./types";
 import { speakerColor } from "./colors";
+import { speakerMarkedText, spanSpeakers } from "./highlight";
 
 const DB_PATH = "opfs://qta.duckdb";
 const SCHEMA_VERSION = "1";
@@ -616,34 +617,71 @@ async function openWorkspace(): Promise<Workspace> {
       } catch {
         // directory or file may not exist yet
       }
+
+      const transcript = await ws.loadTranscript(transcriptId);
+      if (!transcript) throw new Error(`transcript not found: ${transcriptId}`);
+      const speakers = await ws.loadSpeakers(transcriptId);
+      const segments = await ws.loadSegments(transcriptId);
+      const annotations = await ws.loadAnnotations(transcriptId);
+
+      const speakerName = (speakerId: string | null): string => {
+        if (!speakerId) return "Unknown speaker";
+        const s = speakers.find((sp) => sp.speakerId === speakerId);
+        return s?.displayName ?? s?.rawLabel ?? "Unknown speaker";
+      };
+      const segIndex = new Map(segments.map((s, i) => [s.segmentId, i]));
+      const speakerOf = (seg: SegmentRow) => speakerName(seg.speakerId);
+
+      await query(`CREATE OR REPLACE TEMP TABLE _export_rows (
+        transcript_participant VARCHAR,
+        transcript_interviewer VARCHAR,
+        transcript_topic VARCHAR,
+        transcript_session_datetime VARCHAR,
+        speakers VARCHAR,
+        start_ms BIGINT,
+        end_ms BIGINT,
+        highlight_text VARCHAR,
+        note VARCHAR,
+        tags VARCHAR,
+        properties VARCHAR,
+        highlight_uri VARCHAR
+      )`);
+
+      for (const a of annotations) {
+        if (a.kind !== "highlight") continue;
+        const lo = segIndex.get(a.startSegmentId);
+        const hi = segIndex.get(a.endSegmentId);
+        if (lo === undefined || hi === undefined) continue;
+        const span = { lo, hi, startChar: a.startCharOffset, endChar: a.endCharOffset };
+        const marked = speakerMarkedText(segments, span, speakerOf);
+        const speakersJson = JSON.stringify(spanSpeakers(segments, span, speakerOf));
+        const tags = a.tags.map((t) => t.name).join(",");
+        const properties = a.properties ? JSON.stringify(a.properties) : "";
+        await query(`
+          INSERT INTO _export_rows VALUES (
+            ${esc(transcript.participantName ?? "")},
+            ${esc(transcript.interviewerName ?? "")},
+            ${esc(transcript.topic ?? "")},
+            ${esc(transcript.sessionDatetime ?? "")},
+            ${esc(speakersJson)},
+            ${a.startMs},
+            ${a.endMs},
+            ${esc(marked)},
+            ${esc(a.note ?? "")},
+            ${esc(tags)},
+            ${esc(properties)},
+            ${esc(`qda://transcript/${transcriptId}/highlight/${a.annotationId}`)}
+          )
+        `);
+      }
+
       await query(`
         COPY (
-          SELECT
-            COALESCE(t.participant_name, '') AS "transcript_participant",
-            COALESCE(t.interviewer_name, '') AS "transcript_interviewer",
-            COALESCE(t.topic, '') AS "transcript_topic",
-            COALESCE(CAST(t.session_datetime AS VARCHAR), '') AS "transcript_session_datetime",
-            COALESCE(s.display_name, '') AS "speaker_display_name",
-            a.start_ms AS "start_ms",
-            a.end_ms AS "end_ms",
-            a.highlight_text AS "highlight_text",
-            COALESCE(a.note, '') AS "note",
-            COALESCE((
-              SELECT string_agg(tg.name, ',')
-              FROM annotation_tag x
-              JOIN tag tg ON tg.tag_id = x.tag_id
-              WHERE x.annotation_id = a.annotation_id
-            ), '') AS "tags",
-            COALESCE(CAST(a.properties AS VARCHAR), '') AS "properties",
-            'qda://transcript/' || CAST(t.transcript_id AS VARCHAR) || '/highlight/' || CAST(a.annotation_id AS VARCHAR) AS "highlight_uri"
-          FROM annotation a
-          JOIN transcript t ON t.transcript_id = a.transcript_id
-          JOIN transcript_segment seg_start ON seg_start.segment_id = a.start_segment_id
-          LEFT JOIN speaker s ON s.speaker_id = seg_start.speaker_id
-          WHERE a.transcript_id = '${transcriptId}' AND a.kind = 'highlight'
-          ORDER BY a.start_ms, a.created_at, a.annotation_id
+          SELECT * FROM _export_rows ORDER BY start_ms
         ) TO '${exportPath}' (HEADER, DELIMITER ',')
       `);
+      await query("DROP TABLE _export_rows");
+
       const exportsDir = await root.getDirectoryHandle("exports");
       const fileHandle = await exportsDir.getFileHandle("highlights.csv");
       const file = await fileHandle.getFile();

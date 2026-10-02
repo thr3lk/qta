@@ -336,6 +336,16 @@ const download = await downloadPromise;
 const csvPath = await download.path();
 const csv = readFileSync(csvPath, "utf8");
 if (!csv.includes("highlight_text")) await fail3("csv missing header");
+if (!csv.includes("speakers")) await fail3("csv missing speakers header");
+if (!csv.includes("[Alex D.] Great")) {
+  await fail3("csv highlight_text missing [Alex D.] speaker mark");
+}
+if (!csv.includes("[Marcus Webb] Sure.")) {
+  await fail3("csv highlight_text missing [Marcus Webb] speaker mark");
+}
+if (!/""Alex D\."",\s*""Marcus Webb""/.test(csv)) {
+  await fail3("csv speakers column is not a list of both speakers");
+}
 if (!csv.includes("follow-up")) await fail3("csv missing tag");
 if (!csv.includes("qda://transcript/")) await fail3("csv missing highlight_uri");
 console.log(`export ok: ${download.suggestedFilename()}, ${csv.split("\n").length - 1} data rows`);

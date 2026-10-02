@@ -3,6 +3,8 @@ import {
   coverRange,
   highlightText,
   resolveSpan,
+  speakerMarkedText,
+  spanSpeakers,
   splitAtoms,
 } from "./highlight";
 import type { SegmentRow } from "./types";
@@ -146,5 +148,60 @@ describe("coverRange", () => {
       10,
     );
     expect(r).toEqual({ annotationId: "a", from: 0, to: 10 });
+  });
+});
+
+describe("speakerMarkedText", () => {
+  const spans = [
+    seg("alpha beta"), // speaker A
+    seg("gamma delta"), // speaker B
+    seg("epsilon zeta"), // speaker B
+  ];
+  const speakerOf = (s: SegmentRow) =>
+    s.text.startsWith("alpha") ? "Ann" : "Bob";
+
+  it("marks a single-speaker portion once", () => {
+    const span = resolveSpan(1, 2, 0, 12, spans);
+    expect(speakerMarkedText(spans, span, speakerOf)).toBe(
+      "[Bob] gamma delta\nepsilon zeta",
+    );
+  });
+
+  it("marks each speaker's portion across a speaker change", () => {
+    const span = resolveSpan(0, 2, 0, 12, spans);
+    expect(speakerMarkedText(spans, span, speakerOf)).toBe(
+      "[Ann] alpha beta\n[Bob] gamma delta\nepsilon zeta",
+    );
+  });
+
+  it("slices boundary segments by char offset", () => {
+    const span = resolveSpan(0, 2, 6, 7, spans);
+    expect(speakerMarkedText(spans, span, speakerOf)).toBe(
+      "[Ann] beta\n[Bob] gamma delta\nepsilon",
+    );
+  });
+
+  it("handles a partial single-segment selection", () => {
+    const span = resolveSpan(0, 0, 3, 8, spans);
+    expect(speakerMarkedText(spans, span, speakerOf)).toBe("[Ann] ha be");
+  });
+});
+
+describe("spanSpeakers", () => {
+  const spans = [seg("alpha beta"), seg("gamma delta"), seg("epsilon zeta")];
+  const speakerOf = (s: SegmentRow) =>
+    s.text.startsWith("alpha") ? "Ann" : "Bob";
+
+  it("lists each speaker once, in span order", () => {
+    expect(spanSpeakers(spans, resolveSpan(0, 2, 0, 0, spans), speakerOf)).toEqual([
+      "Ann",
+      "Bob",
+    ]);
+  });
+
+  it("returns one speaker for a single-segment span", () => {
+    expect(spanSpeakers(spans, resolveSpan(2, 2, 0, 0, spans), speakerOf)).toEqual([
+      "Bob",
+    ]);
   });
 });

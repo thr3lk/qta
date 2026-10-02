@@ -69,6 +69,54 @@ export function highlightText(
   return lines.join("\n");
 }
 
+// The highlight's text with each speaker's portion prefixed with
+// "[Speaker Name] " (bracket convention). Consecutive segments from the same
+// speaker form one portion; boundary segments honor char offsets; lines join
+// with \n (cue breaks preserved).
+export function speakerMarkedText(
+  segments: SegmentRow[],
+  span: SelectionSpan,
+  speakerOf: (segment: SegmentRow) => string,
+): string {
+  const blocks: { speaker: string; text: string }[] = [];
+  for (let i = span.lo; i <= span.hi; i++) {
+    const seg = segments[i];
+    if (!seg) continue;
+    const len = seg.text.length;
+    let from = 0;
+    let to = len;
+    if (i === span.lo) from = span.startChar;
+    if (i === span.hi && span.endChar > 0) to = span.endChar;
+    const chunk = seg.text.slice(from, Math.max(from, to));
+    if (chunk === "") continue;
+    const speaker = speakerOf(seg);
+    const last = blocks[blocks.length - 1];
+    if (last && last.speaker === speaker) {
+      last.text += `\n${chunk}`;
+    } else {
+      blocks.push({ speaker, text: chunk });
+    }
+  }
+  return blocks.map((b) => `[${b.speaker}] ${b.text}`).join("\n");
+}
+
+// Ordered, deduplicated speaker names covering the span (for the export's
+// speakers list column).
+export function spanSpeakers(
+  segments: SegmentRow[],
+  span: SelectionSpan,
+  speakerOf: (segment: SegmentRow) => string,
+): string[] {
+  const names: string[] = [];
+  for (let i = span.lo; i <= span.hi; i++) {
+    const seg = segments[i];
+    if (!seg) continue;
+    const name = speakerOf(seg);
+    if (!names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
 export interface CoverRange {
   annotationId: string;
   from: number;
