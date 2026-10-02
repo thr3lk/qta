@@ -1,5 +1,8 @@
-# Cute Transcript Analyzer
-A cute tool for QDA
+# Quick Transcript Analyzer
+A cute lil tool for QDA
+
+> [!CAUTION]
+> This thing is very new and almost entirely the product of GLM 5.3-flash. It's an impressive proof of concept, but at the end of the day it's a $3 toy.
 
 start with a folder of VTT transcripts, and optionally, associated video files
 load up QTA
