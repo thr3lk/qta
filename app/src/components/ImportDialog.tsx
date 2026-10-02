@@ -1,27 +1,47 @@
 import { For, Show, createSignal } from "solid-js";
+import type { JSX } from "solid-js";
 import { importVttFile, state } from "../lib/store";
+import { baseStem, isMediaFile, isVideoFile } from "../lib/media";
 
 interface ListedFile {
   name: string;
   file: File | null;
-  imported: boolean;
+  media: File | null;
+  mediaConflict: boolean;
 }
 
-export default function ImportDialog(props: { open: boolean; onClose: () => void }) {
+const importedNames = () => new Set(state.transcripts.map((t) => t.sourceVttPath));
+
+function pairMedia(vttName: string, mediaFiles: File[]): {
+  media: File | null;
+  conflict: boolean;
+} {
+  const stem = baseStem(vttName);
+  const matches = mediaFiles.filter((m) => baseStem(m.name) === stem);
+  if (matches.length === 0) return { media: null, conflict: false };
+  const video = matches.find((m) => isVideoFile(m.name));
+  return { media: video ?? matches[0], conflict: matches.length > 1 };
+}
+
+export default function ImportDialog(props: { open: boolean; onClose: () => void }): JSX.Element {
   const [files, setFiles] = createSignal<ListedFile[]>([]);
   const [error, setError] = createSignal("");
 
-  const importedNames = () => new Set(state.transcripts.map((t) => t.sourceVttPath));
-
-  const collectFromInput = async (fileList: FileList | null) => {
-    if (!fileList) return;
-    const list: ListedFile[] = [];
-    for (const f of Array.from(fileList)) {
-      if (!f.name.toLowerCase().endsWith(".vtt")) continue;
-      list.push({ name: f.name, file: f, imported: importedNames().has(f.name) });
-    }
+  const collectFiles = async (fileList: Iterable<File>) => {
+    const all = Array.from(fileList);
+    const vtts = all.filter((f) => f.name.toLowerCase().endsWith(".vtt"));
+    const media = all.filter((f) => isMediaFile(f.name));
+    const list: ListedFile[] = vtts.map((f) => {
+      const { media: paired, conflict } = pairMedia(f.name, media);
+      return {
+        name: f.name,
+        file: f,
+        media: paired,
+        mediaConflict: conflict,
+      };
+    });
     setFiles(list);
-    if (list.length === 0) setError("No .vtt files found in that folder.");
+    if (list.length === 0) setError("No .vtt files found.");
   };
 
   const openFolder = async () => {
@@ -34,16 +54,13 @@ export default function ImportDialog(props: { open: boolean; onClose: () => void
       ).showDirectoryPicker;
       if (!picker) throw new Error("no folder picker");
       const dir = await picker();
-      const list: ListedFile[] = [];
+      const collected: File[] = [];
       for await (const entry of dir.values()) {
         if (entry.kind !== "file") continue;
-        if (!entry.name.toLowerCase().endsWith(".vtt")) continue;
-        const file = await entry.getFile();
-        list.push({ name: entry.name, file, imported: importedNames().has(entry.name) });
+        collected.push(await entry.getFile());
       }
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      setFiles(list);
-      if (list.length === 0) setError("No .vtt files found in that folder.");
+      collected.sort((a, b) => a.name.localeCompare(b.name));
+      await collectFiles(collected);
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
         setError("Folder access unavailable; use the file picker below.");
@@ -54,7 +71,7 @@ export default function ImportDialog(props: { open: boolean; onClose: () => void
   const doImport = async (entry: ListedFile) => {
     if (!entry.file) return;
     try {
-      await importVttFile(entry.file);
+      await importVttFile(entry.file, entry.media);
       props.onClose();
     } catch (e) {
       setError(String(e));
@@ -67,20 +84,21 @@ export default function ImportDialog(props: { open: boolean; onClose: () => void
         <div class="modal" onClick={(e) => e.stopPropagation()} data-testid="import-dialog">
           <h2>Import a transcript</h2>
           <p class="status-line">
-            Pick a folder of recordings or choose .vtt files. Importing reads the
-            VTT into the local database; the original file is never modified.
+            Pick a folder of recordings or choose files. A video or audio file
+            whose name matches the transcript is attached automatically (video
+            wins if both exist). The original files are never modified.
           </p>
           <div class="row" style={{ display: "flex", gap: "8px" }}>
             <button onClick={() => void openFolder()}>Open folder…</button>
-            <label class="primary" style={{ "border-radius": "6px", padding: "5px 12px", background: "var(--accent)", color: "#fff", cursor: "pointer", border: "1px solid var(--accent)", "font-size": "inherit" }}>
+            <label class="primary attach-label">
               Choose files…
               <input
                 type="file"
                 multiple
-                accept=".vtt,text/vtt"
+                accept=".vtt,video/*,audio/*"
                 class="visually-hidden"
                 data-testid="vtt-file-input"
-                onChange={(e) => void collectFromInput(e.currentTarget.files)}
+                onChange={(e) => void collectFiles(e.currentTarget.files ?? [])}
               />
             </label>
           </div>
@@ -90,7 +108,16 @@ export default function ImportDialog(props: { open: boolean; onClose: () => void
           <For each={files()}>
             {(entry) => (
               <div class="file-row" data-testid="vtt-file-row">
-                <span class="fname">{entry.name}</span>
+                <span class="fname">
+                  {entry.name}
+                  <Show when={entry.media}>
+                    <span class="badge">
+                      {" "}
+                      + {entry.media!.name}
+                      <Show when={entry.mediaConflict}> (video preferred)</Show>
+                    </span>
+                  </Show>
+                </span>
                 <div class="actions">
                   <Show when={importedNames().has(entry.name)}>
                     <span class="badge">imported</span>

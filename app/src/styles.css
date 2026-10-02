@@ -94,6 +94,59 @@ select {
   min-height: 0;
 }
 
+.transcript-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.media-bar {
+  border-bottom: 1px solid var(--line);
+  background: var(--pane);
+  padding: 6px 16px;
+}
+
+.media-attach {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.attach-label {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: inherit;
+}
+
+.media-player {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.media-video {
+  max-height: 220px;
+  width: 100%;
+  background: #000;
+  border-radius: 6px;
+}
+
+.media-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.media-controls input[type="range"] {
+  flex: 1;
+}
+
 .transcript-pane {
   flex: 1;
   overflow-y: auto;

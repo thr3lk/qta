@@ -3,7 +3,16 @@ import type { JSX } from "solid-js";
 import TranscriptView from "./components/TranscriptView";
 import Tray from "./components/Tray";
 import ImportDialog from "./components/ImportDialog";
-import { boot, exportCsv, openTranscript, state } from "./lib/store";
+import MediaPlayer from "./components/MediaPlayer";
+import {
+  boot,
+  exportCsv,
+  mediaFile,
+  mediaHidden,
+  openTranscript,
+  setMediaHidden,
+  state,
+} from "./lib/store";
 import { downloadBytes, exportFileName } from "./lib/export";
 
 type PendingHighlight = {
@@ -61,6 +70,14 @@ export default function App(): JSX.Element {
           <span class="status-line" data-testid="export-status">
             {exportStatus()}
           </span>
+          <Show when={state.transcript?.sourceMediaPath && mediaFile()}>
+            <button
+              data-testid="media-toggle"
+              onClick={() => setMediaHidden(!mediaHidden())}
+            >
+              {mediaHidden() ? "Show media" : "Hide media"}
+            </button>
+          </Show>
         </Show>
         <button data-testid="import-button" onClick={() => setImportOpen(true)}>
           Import…
@@ -86,7 +103,10 @@ export default function App(): JSX.Element {
           }
         >
           <main class="app-main">
-            <TranscriptView pendingHighlight={pending()} setPendingHighlight={setPending} />
+            <div class="transcript-column">
+              <MediaPlayer />
+              <TranscriptView pendingHighlight={pending()} setPendingHighlight={setPending} />
+            </div>
             <Tray filter={filter()} setFilter={setFilter} />
           </main>
         </Show>

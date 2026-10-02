@@ -6,6 +6,7 @@ import {
   removeTagFrom,
   saveNote,
   saveProperties,
+  seekMedia,
   selectAnnotation,
   speakerDisplayName,
   state,
@@ -221,7 +222,10 @@ export default function Tray(props: { filter: string; setFilter: (f: string) => 
               classList={{ selected: state.selectedAnnotationId === ann.annotationId }}
               data-card-id={ann.annotationId}
               data-testid="tray-card"
-              onClick={() => selectAnnotation(ann.annotationId)}
+              onClick={() => {
+                selectAnnotation(ann.annotationId);
+                seekMedia(ann.startMs);
+              }}
             >
               <div class="card-top">
                 <span>
