@@ -2,6 +2,24 @@ import { chromium } from "playwright";
 import { createServer } from "http";
 import { readFileSync, existsSync, rmSync } from "fs";
 import { extname, join } from "path";
+import { tmpdir } from "os";
+import { mkdirSync, writeFileSync } from "fs";
+
+// 2s of 8 kHz mono 16-bit silence; WAV plays in any browser engine
+function makeWav(path) {
+  const sampleRate = 8000, seconds = 70;
+  const data = Buffer.alloc(sampleRate * seconds * 2);
+  const b = Buffer.alloc(44);
+  b.write("RIFF", 0); b.writeUInt32LE(36 + data.length, 4); b.write("WAVE", 8);
+  b.write("fmt ", 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22); b.writeUInt32LE(sampleRate, 24);
+  b.writeUInt32LE(sampleRate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write("data", 36); b.writeUInt32LE(data.length, 40);
+  writeFileSync(path, Buffer.concat([b, data]));
+}
+const wavPath = join(tmpdir(), "qta-e2e", "GMT20250115-140000_Recording.wav");
+mkdirSync(join(tmpdir(), "qta-e2e"), { recursive: true });
+makeWav(wavPath);
 
 const MIME = {
   ".html": "text/html",
@@ -50,10 +68,33 @@ await page.waitForSelector('[data-testid="welcome-import"]', { timeout: 120000 }
 await page.click('[data-testid="welcome-import"]');
 await page.waitForSelector('[data-testid="import-dialog"]');
 await page.setInputFiles('[data-testid="vtt-file-input"]',
-  "../sample-data/GMT20250115-140000_Recording.transcript.vtt");
+  ["../sample-data/GMT20250115-140000_Recording.transcript.vtt", wavPath]);
 await page.waitForSelector('[data-testid="vtt-file-row"]');
+const rowText = await page.textContent('[data-testid="vtt-file-row"]');
+if (!rowText.includes("GMT20250115-140000_Recording.wav")) {
+  await fail("media was not paired with the transcript");
+}
 await page.click('[data-testid="vtt-file-row"] button.primary');
 await page.waitForSelector('[data-testid="transcript-pane"]', { timeout: 60000 });
+await page.waitForSelector('[data-testid="media-bar"]', { timeout: 60000 });
+console.log("media paired and bar visible");
+
+// expand player, click a segment, expect seek + play
+await page.click('[data-testid="media-expand"]');
+await page.waitForSelector('audio, video', { state: 'attached' });
+await page.waitForTimeout(300);
+const before = await page.evaluate(() => document.querySelector('audio, video').currentTime);
+await page.locator('[data-testid="segment"]').nth(5).click();
+await page.waitForTimeout(700);
+const after = await page.evaluate(() => document.querySelector('audio, video').currentTime);
+console.log(`media time before/after segment click: ${before.toFixed(2)} -> ${after.toFixed(2)}`);
+if (Math.abs(after - 40.1) > 2) await fail(`expected seek to ~40.1s (segment 6 start), got ${after}`);
+// media toggle hides the bar entirely
+await page.click('[data-testid="media-toggle"]');
+if (await page.locator('[data-testid="media-bar"]').count() !== 0) await fail("media toggle did not hide bar");
+await page.click('[data-testid="media-toggle"]');
+if (await page.locator('[data-testid="media-bar"]').count() !== 1) await fail("media toggle did not restore bar");
+console.log("media toggle ok");
 
 const segCount = await page.locator('[data-testid="segment"]').count();
 console.log(`segments rendered: ${segCount}`);
@@ -105,6 +146,17 @@ const fail2 = async (msg) => {
 };
 await page2.goto("http://localhost:5200/", { waitUntil: "load" });
 await page2.waitForSelector('[data-testid="tray-card"]', { timeout: 120000 });
+// media name persisted but the file handle did not; expect the attach affordance
+await page2.waitForSelector('[data-testid="media-attach"]', { timeout: 60000 });
+await page2.setInputFiles('[data-testid="media-file-input"]', wavPath);
+await page2.waitForSelector('[data-testid="media-bar"] [data-testid="media-expand"]', { timeout: 60000 });
+await page2.click('[data-testid="media-expand"]');
+await page2.waitForSelector('audio, video', { state: 'attached' });
+await page2.locator('[data-testid="segment"]').nth(3).click();
+await page2.waitForTimeout(700);
+const seeked = await page2.evaluate(() => document.querySelector('audio, video').currentTime);
+if (Math.abs(seeked - 21.65) > 2) await fail2(`re-attached media did not seek to ~21.65s, got ${seeked}`);
+console.log("media re-attach + seek after restart: ok");
 const body2 = await page2.textContent("body");
 if (!body2.includes("follow-up")) await fail2("tag did not persist across restart");
 if (!body2.includes("Great, we're recording")) await fail2("transcript did not reload");
