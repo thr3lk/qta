@@ -1,4 +1,5 @@
 import { createContext, useContext } from "solid-js";
+import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import type {
   AnnotationRow,
@@ -23,6 +24,22 @@ export interface AppState {
   flashSegmentIds: string[];
   chooser: { segmentId: string; x: number; y: number } | null;
   importing: boolean;
+}
+
+export const [mediaFile, setMediaFile] = createSignal<File | null>(null);
+export const [mediaHidden, setMediaHidden] = createSignal(false);
+
+let mediaController: { seek: (ms: number) => void } | null = null;
+
+export function registerMediaController(controller: {
+  seek: (ms: number) => void;
+} | null): void {
+  mediaController = controller;
+}
+
+export function seekMedia(ms: number): void {
+  if (!mediaFile() || mediaHidden()) return;
+  mediaController?.seek(ms);
 }
 
 export const [state, setState] = createStore<AppState>({
@@ -83,9 +100,19 @@ export async function openTranscript(transcriptId: string): Promise<void> {
     flashSegmentIds: [],
     chooser: null,
   });
+  setMediaFile(null);
+  setMediaHidden(false);
 }
 
-export async function importVttFile(file: File): Promise<void> {
+export async function attachMedia(file: File): Promise<void> {
+  if (!state.activeId) return;
+  await workspace().setMediaPath(state.activeId, file.name);
+  setState("transcript", "sourceMediaPath", file.name);
+  setMediaFile(file);
+  setMediaHidden(false);
+}
+
+export async function importVttFile(file: File, mediaFile?: File | null): Promise<void> {
   const w = workspace();
   setState("importing", true);
   try {
@@ -94,12 +121,18 @@ export async function importVttFile(file: File): Promise<void> {
     if (cues.length === 0) {
       throw new Error(`No cues found in ${file.name}`);
     }
-    const transcriptId = await w.importTranscript(file.name, cues, {
-      participantName: guessParticipantName(file.name),
-      sessionDatetime: guessSessionDatetime(file.name),
-    });
+    const transcriptId = await w.importTranscript(
+      file.name,
+      cues,
+      {
+        participantName: guessParticipantName(file.name),
+        sessionDatetime: guessSessionDatetime(file.name),
+      },
+      mediaFile?.name ?? null,
+    );
     await refreshTranscripts();
     await openTranscript(transcriptId);
+    if (mediaFile) setMediaFile(mediaFile);
   } finally {
     setState("importing", false);
   }

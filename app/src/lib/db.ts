@@ -102,7 +102,9 @@ export interface Workspace {
     fileName: string,
     cues: ParsedCue[],
     metadata: { participantName: string | null; sessionDatetime: string | null },
+    mediaName?: string | null,
   ): Promise<string>;
+  setMediaPath(transcriptId: string, mediaName: string | null): Promise<void>;
   loadTranscript(transcriptId: string): Promise<TranscriptRow | null>;
   loadSpeakers(transcriptId: string): Promise<SpeakerRow[]>;
   loadSegments(transcriptId: string): Promise<SegmentRow[]>;
@@ -201,7 +203,7 @@ async function openWorkspace(): Promise<Workspace> {
       }));
     },
 
-    async importTranscript(fileName, cues, metadata) {
+    async importTranscript(fileName, cues, metadata, mediaName = null) {
       const transcriptId = uuid();
       const durationSeconds = cues.length ? cues[cues.length - 1].endMs / 1000 : 0;
       await query(`
@@ -209,7 +211,7 @@ async function openWorkspace(): Promise<Workspace> {
           transcript_id, source_vtt_path, source_media_path, participant_name,
           interviewer_name, session_datetime, topic, duration_seconds, created_at
         ) VALUES (
-          '${transcriptId}', ${esc(fileName)}, NULL, ${esc(metadata.participantName)},
+          '${transcriptId}', ${esc(fileName)}, ${esc(mediaName)}, ${esc(metadata.participantName)},
           NULL, ${esc(metadata.sessionDatetime)}, NULL, ${durationSeconds},
           CAST(now() AS TIMESTAMP)
         )
@@ -246,6 +248,15 @@ async function openWorkspace(): Promise<Workspace> {
         `);
       }
       return transcriptId;
+    },
+
+    async setMediaPath(transcriptId, mediaName) {
+      await query(`
+        UPDATE transcript
+        SET source_media_path = ${esc(mediaName)}
+        WHERE transcript_id = '${transcriptId}'
+      `);
+      await checkpoint();
     },
 
     async loadTranscript(transcriptId) {
