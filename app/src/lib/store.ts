@@ -31,17 +31,63 @@ export interface AppState {
 export const [mediaFile, setMediaFile] = createSignal<File | null>(null);
 export const [mediaHidden, setMediaHidden] = createSignal(false);
 
-let mediaController: { seek: (ms: number) => void } | null = null;
+export type PlaybackMode = "play-from" | "go-to" | "play-only";
+
+const PLAYBACK_MODE_KEY = "qta.playbackMode";
+
+function loadPlaybackMode(): PlaybackMode {
+  try {
+    const v = localStorage.getItem(PLAYBACK_MODE_KEY);
+    if (v === "go-to" || v === "play-only") return v;
+  } catch {
+    // storage unavailable; fall through to default
+  }
+  return "play-from";
+}
+
+export const [playbackMode, setPlaybackModeValue] = createSignal<PlaybackMode>(
+  loadPlaybackMode(),
+);
+
+export function setPlaybackMode(mode: PlaybackMode): void {
+  setPlaybackModeValue(mode);
+  try {
+    localStorage.setItem(PLAYBACK_MODE_KEY, mode);
+  } catch {
+    // preference just won't persist
+  }
+}
+
+export interface SeekOptions {
+  play: boolean;
+  stopAtMs: number | null;
+}
+
+let mediaController: {
+  seek: (ms: number, opts?: Partial<SeekOptions>) => void;
+} | null = null;
 
 export function registerMediaController(controller: {
-  seek: (ms: number) => void;
+  seek: (ms: number, opts?: Partial<SeekOptions>) => void;
 } | null): void {
   mediaController = controller;
 }
 
-export function seekMedia(ms: number): void {
+export function playRange(startMs: number, endMs: number | null): void {
   if (!mediaFile() || mediaHidden()) return;
-  mediaController?.seek(ms);
+  const mode = playbackMode();
+  mediaController?.seek(startMs, {
+    play: mode !== "go-to",
+    stopAtMs: mode === "play-only" ? endMs : null,
+  });
+}
+
+export function goToAnnotation(ann: AnnotationRow): void {
+  playRange(ann.startMs, ann.endMs);
+}
+
+export function goToSegment(seg: SegmentRow): void {
+  playRange(seg.startMs, seg.endMs);
 }
 
 export const [state, setState] = createStore<AppState>({

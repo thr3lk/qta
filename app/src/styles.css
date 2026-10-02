@@ -279,6 +279,21 @@ select {
   font-weight: 400;
 }
 
+.playback-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 8px 0 4px;
+}
+
+.playback-mode select {
+  font-size: 12px;
+  max-width: 150px;
+}
+
 .tray input.filter {
   width: 100%;
 }

@@ -131,6 +131,86 @@ await page.fill('[data-testid="note-input"]', "check this claim");
 await page.waitForTimeout(900);
 console.log("tag + note added");
 
+// 3b. playback-mode control: second short highlight (segment 1, 10.36s-11.16s)
+await page.evaluate(() => {
+  const segs = document.querySelectorAll('[data-testid="segment"]');
+  const node = segs[1].firstChild.firstChild;
+  const range = document.createRange();
+  range.setStart(node, 0);
+  range.setEnd(node, node.length);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  document.querySelector('[data-testid="transcript-pane"]')
+    .dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 300, clientY: 300 }));
+});
+await page.waitForSelector('[data-testid="highlight-button"]', { timeout: 10000 });
+await page.click('[data-testid="highlight-button"]');
+await page.waitForFunction(
+  () => document.querySelectorAll('[data-testid="tray-card"]').length === 2,
+  { timeout: 10000 },
+);
+console.log("second highlight created");
+
+const mediaState = () =>
+  page.evaluate(() => {
+    const el = document.querySelector("audio, video");
+    return { t: el.currentTime, paused: el.paused };
+  });
+// segment 1 spans 10.36s-11.16s in the sample data
+const card2 = page.locator('[data-testid="tray-card"]').nth(1);
+
+// default "play from selection": jumps and plays
+await card2.click();
+await page.waitForTimeout(900);
+let m = await mediaState();
+if (m.paused) await fail("play-from mode did not start playback");
+if (Math.abs(m.t - 10.36) > 3) await fail(`play-from expected ~10.36s, got ${m.t}`);
+// "go to selection": jumps without playing
+await page.selectOption('[data-testid="playback-mode"]', "go-to");
+await card2.click();
+await page.waitForTimeout(900);
+m = await mediaState();
+if (!m.paused) await fail("go-to mode should not autoplay");
+if (Math.abs(m.t - 10.36) > 3) await fail(`go-to expected ~10.36s, got ${m.t}`);
+// "play only selection": plays, then stops at the highlight end
+await page.selectOption('[data-testid="playback-mode"]', "play-only");
+await card2.click();
+await page.waitForTimeout(400);
+m = await mediaState();
+if (m.paused) await fail("play-only mode did not start playback");
+const stopped = await page
+  .waitForFunction(
+    () => {
+      const el = document.querySelector("audio, video");
+      return el && el.paused && el.currentTime >= 10.0;
+    },
+    { timeout: 15000 },
+  )
+  .then(() => true)
+  .catch(() => false);
+if (!stopped) await fail("play-only mode did not stop at the highlight end");
+m = await mediaState();
+if (m.t > 20) await fail(`play-only stopped too late at ${m.t}s`);
+console.log("playback modes ok");
+// transcript clicks honor the mode too: segment 0 is covered only by the
+// first highlight (starts 2.17s); go-to must seek there without playing
+await page.selectOption('[data-testid="playback-mode"]', "go-to");
+await page.locator('[data-testid="segment"]').nth(0).click();
+await page.waitForTimeout(900);
+m = await mediaState();
+if (!m.paused) await fail("transcript click in go-to mode should not autoplay");
+if (Math.abs(m.t - 2.17) > 2) await fail(`transcript go-to expected ~2.17s, got ${m.t}`);
+console.log("transcript click mode ok");
+// plain (unhighlighted) segment click also honors the mode: segment 4
+// spans 31.39s-39.94s; go-to must seek there without playing
+await page.locator('[data-testid="segment"]').nth(4).click();
+await page.waitForTimeout(900);
+m = await mediaState();
+if (!m.paused) await fail("plain segment click in go-to mode should not autoplay");
+if (Math.abs(m.t - 31.39) > 2) await fail(`plain segment go-to expected ~31.39s, got ${m.t}`);
+console.log("plain segment click mode ok");
+
 // 4. persistence: full browser restart
 await ctx.close();
 const ctx2 = await chromium.launchPersistentContext(userDataDir, {
@@ -216,7 +296,7 @@ console.log(`export ok: ${download.suggestedFilename()}, ${csv.split("\n").lengt
 await page3.click('[data-testid="tab-library"]');
 await page3.waitForSelector('[data-testid="library-row"]', { timeout: 60000 });
 await page3.waitForFunction(
-  () => document.querySelector('[data-testid="library-counts"]')?.textContent.includes("1 highlights"),
+  () => document.querySelector('[data-testid="library-counts"]')?.textContent.includes("2 highlights"),
   { timeout: 15000 },
 );
 const counts = await page3.textContent('[data-testid="library-counts"]');

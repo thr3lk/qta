@@ -3,13 +3,16 @@ import type { AnnotationRow } from "../lib/types";
 import {
   addTagTo,
   deleteAnnotation,
+  goToAnnotation,
   removeTagFrom,
+  playbackMode,
   saveNote,
   saveProperties,
-  seekMedia,
   selectAnnotation,
+  setPlaybackMode,
   speakerDisplayName,
   state,
+  type PlaybackMode,
 } from "../lib/store";
 import { annotationColor } from "../lib/colors";
 import { formatMs, snippet } from "../lib/format";
@@ -204,6 +207,20 @@ export default function Tray(props: { filter: string; setFilter: (f: string) => 
         <span>Highlights</span>
         <span class="tray-count">{state.annotations.length}</span>
       </div>
+      <label class="playback-mode" title="What happens when you select a highlight">
+        <span>On select</span>
+        <select
+          data-testid="playback-mode"
+          value={playbackMode()}
+          onChange={(e) =>
+            setPlaybackMode(e.currentTarget.value as PlaybackMode)
+          }
+        >
+          <option value="play-from">Play from selection</option>
+          <option value="go-to">Go to selection</option>
+          <option value="play-only">Play only selection</option>
+        </select>
+      </label>
       <input
         class="filter"
         data-testid="tray-filter"
@@ -224,7 +241,7 @@ export default function Tray(props: { filter: string; setFilter: (f: string) => 
               data-testid="tray-card"
               onClick={() => {
                 selectAnnotation(ann.annotationId);
-                seekMedia(ann.startMs);
+                goToAnnotation(ann);
               }}
             >
               <div class="card-top">

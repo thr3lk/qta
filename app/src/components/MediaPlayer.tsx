@@ -23,25 +23,29 @@ export default function MediaPlayer(): JSX.Element {
   const [playing, setPlaying] = createSignal(false);
 
   let element: HTMLMediaElement | undefined;
+  let stopAtSecs: number | null = null;
   const bindElement = (el: HTMLMediaElement) => {
     element = el;
   };
 
   onMount(() => {
     registerMediaController({
-      seek: (ms) => {
+      seek: (ms, opts) => {
         if (!mediaFile() || mediaHidden()) return;
         const el = element ?? document.querySelector<HTMLMediaElement>("video, audio");
         if (!el) return;
         setExpanded(true);
+        stopAtSecs = opts?.stopAtMs != null ? opts.stopAtMs / 1000 : null;
         el.currentTime = ms / 1000;
-        void el.play().catch(() => {});
+        if (opts?.play === false) el.pause();
+        else void el.play().catch(() => {});
       },
     });
   });
 
   const togglePlay = () => {
     if (!element) return;
+    stopAtSecs = null;
     if (element.paused) void element.play().catch(() => {});
     else element.pause();
   };
@@ -54,7 +58,14 @@ export default function MediaPlayer(): JSX.Element {
   const mediaProps = {
     onPlay: () => setPlaying(true),
     onPause: () => setPlaying(false),
-    onTimeUpdate: () => setCurrent(element?.currentTime ?? 0),
+    onTimeUpdate: () => {
+      const t = element?.currentTime ?? 0;
+      setCurrent(t);
+      if (stopAtSecs !== null && t >= stopAtSecs - 0.05) {
+        element?.pause();
+        stopAtSecs = null;
+      }
+    },
     onLoadedMetadata: () => setDuration(element?.duration ?? 0),
   };
 
@@ -126,6 +137,7 @@ export default function MediaPlayer(): JSX.Element {
                   step="0.1"
                   value={current()}
                   onInput={(e) => {
+                    stopAtSecs = null;
                     if (element) element.currentTime = Number(e.currentTarget.value);
                   }}
                 />

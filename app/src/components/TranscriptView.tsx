@@ -4,9 +4,10 @@ import {
   annotationsCovering,
   closeChooser,
   createHighlight,
+  goToAnnotation,
+  goToSegment,
   openChooser,
   renameSpeaker,
-  seekMedia,
   selectAnnotation,
   segmentIndexById,
   speakerDisplayName,
@@ -172,14 +173,17 @@ export default function TranscriptView(props: {
       }
       const segIdx = idxMap().get(target.dataset.segmentId!) ?? -1;
       const clickedSeg = state.segments[segIdx];
-      if (clickedSeg) seekMedia(clickedSeg.startMs);
       const covering = annotationsCovering(target.dataset.segmentId!);
       if (covering.length === 1) {
         selectAnnotation(covering[0].annotationId);
-      } else if (covering.length > 1) {
-        openChooser(target.dataset.segmentId!, e.clientX, e.clientY);
+        goToAnnotation(covering[0]);
       } else {
-        closeChooser();
+        if (clickedSeg) goToSegment(clickedSeg);
+        if (covering.length > 1) {
+          openChooser(target.dataset.segmentId!, e.clientX, e.clientY);
+        } else {
+          closeChooser();
+        }
       }
     }, 0);
   };
@@ -266,7 +270,7 @@ export default function TranscriptView(props: {
                 <button
                   onClick={() => {
                     selectAnnotation(ann.annotationId);
-                    seekMedia(ann.startMs);
+                    goToAnnotation(ann);
                     closeChooser();
                   }}
                 >
