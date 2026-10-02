@@ -183,7 +183,10 @@ const ctx3 = await chromium.launchPersistentContext(userDataDir, {
 });
 const page3 = await ctx3.newPage();
 page3.on("pageerror", (e) => console.error("PAGE ERROR:", e));
-page3.on("console", (m) => console.log("[console]", m.type(), m.text().slice(0, 120)));
+page3.on("console", (m) => {
+  if (["warning", "error"].includes(m.type()))
+    console.log("[console]", m.type(), m.text().slice(0, 200));
+});
 page3.on("dialog", (d) => {
   console.log("[dialog]", d.type(), d.message().slice(0, 80));
   void d.accept();

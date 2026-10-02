@@ -145,16 +145,16 @@ async function openWorkspace(): Promise<Workspace> {
     mainWorker: ehWorkerUrl,
     pthreadWorker: null,
   } as unknown as duckdb.DuckDBBundle;
-  const worker = new Worker(bundle.mainWorker as string);
-  const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.INFO);
-  const db = new duckdb.AsyncDuckDB(logger, worker);
+  const logger = new duckdb.VoidLogger();
+  let worker = new Worker(bundle.mainWorker as string);
+  let db = new duckdb.AsyncDuckDB(logger, worker);
   await db.instantiate(bundle.mainModule);
   await db.open({
     path: DB_PATH,
     accessMode: duckdb.DuckDBAccessMode.READ_WRITE,
     opfs: { fileHandling: "auto" },
   });
-  const conn = await db.connect();
+  let conn = await db.connect();
 
   for (const stmt of SCHEMA_STATEMENTS) {
     await conn.query(stmt);
@@ -168,13 +168,81 @@ async function openWorkspace(): Promise<Workspace> {
     );
   }
 
+  class QueryTimeoutError extends Error {}
+
+  const QUERY_TIMEOUT_MS = 10000;
+
+  function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(
+        () => reject(new QueryTimeoutError(`database did not respond within ${ms}ms`)),
+        ms,
+      );
+      p.then(
+        (v) => {
+          clearTimeout(t);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(t);
+          reject(e);
+        },
+      );
+    });
+  }
+
+  async function rebuild(): Promise<void> {
+    try {
+      await withTimeout(db.terminate(), 2000);
+    } catch {
+      // abandoned: the worker is hung or already gone
+    }
+    worker.terminate();
+    worker = new Worker(bundle.mainWorker as string);
+    db = new duckdb.AsyncDuckDB(logger, worker);
+    await db.instantiate(bundle.mainModule);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await db.open({
+          path: DB_PATH,
+          accessMode: duckdb.DuckDBAccessMode.READ_WRITE,
+          opfs: { fileHandling: "auto" },
+        });
+        break;
+      } catch (e) {
+        if (attempt >= 3) throw e;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+    conn = await db.connect();
+  }
+
+  let recovering: Promise<void> | null = null;
+
+  function recover(): Promise<void> {
+    if (!recovering) {
+      recovering = rebuild().finally(() => {
+        recovering = null;
+      });
+    }
+    return recovering;
+  }
+
   async function query(sql: string): Promise<RawRow[]> {
-    const result = await conn.query(sql);
-    return result.toArray() as unknown as RawRow[];
+    const run = () =>
+      conn.query(sql).then((r) => r.toArray() as unknown as RawRow[]);
+    try {
+      return await withTimeout(run(), QUERY_TIMEOUT_MS);
+    } catch (e) {
+      if (!(e instanceof QueryTimeoutError)) throw e;
+      console.warn("qta: database worker unresponsive; rebuilding and retrying");
+      await recover();
+      return await withTimeout(run(), QUERY_TIMEOUT_MS);
+    }
   }
 
   async function checkpoint(): Promise<void> {
-    await conn.query("CHECKPOINT");
+    await query("CHECKPOINT");
   }
 
   const ws: Workspace = {
@@ -421,22 +489,16 @@ async function openWorkspace(): Promise<Workspace> {
     },
 
     async deleteTranscript(transcriptId) {
-      console.debug("DEL step: annotation_tag");
       await query(`
         DELETE FROM annotation_tag
         WHERE annotation_id IN (
           SELECT annotation_id FROM annotation WHERE transcript_id = '${transcriptId}'
         )
       `);
-      console.debug("DEL step: annotation");
       await query(`DELETE FROM annotation WHERE transcript_id = '${transcriptId}'`);
-      console.debug("DEL step: segments");
       await query(`DELETE FROM transcript_segment WHERE transcript_id = '${transcriptId}'`);
-      console.debug("DEL step: speakers");
       await query(`DELETE FROM speaker WHERE transcript_id = '${transcriptId}'`);
-      console.debug("DEL step: transcript");
       await query(`DELETE FROM transcript WHERE transcript_id = '${transcriptId}'`);
-      console.debug("DEL step: checkpoint");
       await checkpoint();
     },
 
@@ -589,24 +651,6 @@ async function openWorkspace(): Promise<Workspace> {
       out.set(bom, 0);
       out.set(bytes, bom.length);
       return out;
-    },
-  };
-
-  (window as unknown as Record<string, unknown>).__qtaDebug = {
-    query,
-    newConnection: () => db.connect(),
-    reopen: async () => {
-      conn.close();
-      await db.terminate();
-      const w = new Worker(bundle.mainWorker as string);
-      const fresh = new duckdb.AsyncDuckDB(logger, w);
-      await fresh.instantiate(bundle.mainModule);
-      await fresh.open({
-        path: DB_PATH,
-        accessMode: duckdb.DuckDBAccessMode.READ_WRITE,
-        opfs: { fileHandling: "auto" },
-      });
-      return fresh.connect();
     },
   };
 

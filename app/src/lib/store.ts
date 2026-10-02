@@ -94,13 +94,11 @@ export async function refreshLibrary(): Promise<void> {
 }
 
 export async function deleteTranscript(transcriptId: string): Promise<void> {
-  console.debug("DELETE_DBG called", transcriptId);
   const label =
     state.transcripts.find((t) => t.transcriptId === transcriptId)?.sourceVttPath ??
     transcriptId;
   const stats = state.stats.get(transcriptId);
   const count = stats ? stats.highlights : 0;
-  console.debug("DELETE_DBG before confirm");
   if (
     !window.confirm(
       `Delete recording "${label}" and its ${count} highlight${count === 1 ? "" : "s"}? This cannot be undone.`,
@@ -109,9 +107,7 @@ export async function deleteTranscript(transcriptId: string): Promise<void> {
     return;
   }
   await workspace().deleteTranscript(transcriptId);
-  console.debug("DELETE_DBG rows:", state.transcripts.length, "activeMatch:", state.activeId === transcriptId);
   await refreshLibrary();
-  console.debug("DELETE_DBG postRefresh:", state.transcripts.length, "phase:", state.phase);
   if (state.activeId === transcriptId) {
     const next = state.transcripts[0];
     if (next) {

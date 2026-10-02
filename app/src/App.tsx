@@ -107,21 +107,7 @@ export default function App(): JSX.Element {
         when={state.phase !== "loading"}
         fallback={<div class="loading">Loading database…</div>}
       >
-        <Show
-          when={state.phase === "ready" && state.view === "review"}
-          fallback={
-            <div class="welcome">
-              <h2>No transcripts yet</h2>
-              <p>
-                Point QTA at a folder containing .vtt transcripts. Highlights,
-                tags, and notes are stored locally in your browser.
-              </p>
-              <button class="primary" data-testid="welcome-import" onClick={() => setImportOpen(true)}>
-                Import a transcript…
-              </button>
-            </div>
-          }
-        >
+        <Show when={state.phase === "ready" && state.view === "review"}>
           <main class="app-main">
             <div class="transcript-column">
               <MediaPlayer />
@@ -129,6 +115,18 @@ export default function App(): JSX.Element {
             </div>
             <Tray filter={filter()} setFilter={setFilter} />
           </main>
+        </Show>
+        <Show when={state.phase === "welcome"}>
+          <div class="welcome">
+            <h2>No transcripts yet</h2>
+            <p>
+              Point QTA at a folder containing .vtt transcripts. Highlights,
+              tags, and notes are stored locally in your browser.
+            </p>
+            <button class="primary" data-testid="welcome-import" onClick={() => setImportOpen(true)}>
+              Import a transcript…
+            </button>
+          </div>
         </Show>
         <Show when={state.view === "library" && state.phase !== "welcome"}>
           <Library />
