@@ -226,7 +226,22 @@ const fail2 = async (msg) => {
 };
 await page2.goto("http://localhost:5200/", { waitUntil: "load" });
 await page2.waitForSelector('[data-testid="tray-card"]', { timeout: 120000 });
-// media name persisted but the file handle did not; expect the attach affordance
+// media blob persisted in IndexedDB: restored automatically after restart
+await page2.waitForSelector('[data-testid="media-bar"] [data-testid="media-expand"]', { timeout: 60000 });
+await page2.click('[data-testid="media-expand"]');
+await page2.waitForSelector('audio, video', { state: 'attached' });
+await page2.locator('[data-testid="segment"]').nth(3).click();
+await page2.waitForTimeout(700);
+const seeked = await page2.evaluate(() => document.querySelector('audio, video').currentTime);
+if (Math.abs(seeked - 21.65) > 2) await fail2(`restored media did not seek to ~21.65s, got ${seeked}`);
+console.log("media restored after restart + seek: ok");
+// fallback: without a stored blob (fresh browser profile scenario) the
+// attach affordance appears and re-attaching works
+await page2.evaluate(() => new Promise((res) => {
+  const req = indexedDB.deleteDatabase("qta-media");
+  req.onsuccess = req.onerror = req.onblocked = () => res(null);
+}));
+await page2.reload({ waitUntil: "load" });
 await page2.waitForSelector('[data-testid="media-attach"]', { timeout: 60000 });
 await page2.setInputFiles('[data-testid="media-file-input"]', wavPath);
 await page2.waitForSelector('[data-testid="media-bar"] [data-testid="media-expand"]', { timeout: 60000 });
@@ -234,8 +249,8 @@ await page2.click('[data-testid="media-expand"]');
 await page2.waitForSelector('audio, video', { state: 'attached' });
 await page2.locator('[data-testid="segment"]').nth(3).click();
 await page2.waitForTimeout(700);
-const seeked = await page2.evaluate(() => document.querySelector('audio, video').currentTime);
-if (Math.abs(seeked - 21.65) > 2) await fail2(`re-attached media did not seek to ~21.65s, got ${seeked}`);
+const seeked2 = await page2.evaluate(() => document.querySelector('audio, video').currentTime);
+if (Math.abs(seeked2 - 21.65) > 2) await fail2(`re-attached media did not seek to ~21.65s, got ${seeked2}`);
 console.log("media re-attach + seek after restart: ok");
 const body2 = await page2.textContent("body");
 if (!body2.includes("follow-up")) await fail2("tag did not persist across restart");

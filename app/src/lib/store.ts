@@ -9,6 +9,12 @@ import type {
   TranscriptRow,
 } from "./types";
 import { getWorkspace, type Workspace } from "./db";
+import {
+  deleteMediaFile,
+  loadMediaFile,
+  pruneMediaFiles,
+  saveMediaFile,
+} from "./mediaStore";
 import { guessParticipantName, guessSessionDatetime, parseVtt } from "./vtt";
 
 export interface AppState {
@@ -117,6 +123,9 @@ function workspace(): Workspace {
 export async function boot(): Promise<void> {
   ws = await getWorkspace();
   await refreshTranscripts();
+  void pruneMediaFiles(new Set(state.transcripts.map((t) => t.transcriptId))).catch(
+    () => {},
+  );
   const latest = state.transcripts[0];
   if (latest) {
     await openTranscript(latest.transcriptId);
@@ -153,6 +162,7 @@ export async function deleteTranscript(transcriptId: string): Promise<void> {
     return;
   }
   await workspace().deleteTranscript(transcriptId);
+  void deleteMediaFile(transcriptId).catch(() => {});
   await refreshLibrary();
   if (state.activeId === transcriptId) {
     const next = state.transcripts[0];
@@ -188,11 +198,14 @@ export async function openTranscript(transcriptId: string): Promise<void> {
   });
   setMediaFile(null);
   setMediaHidden(false);
+  const stored = await loadMediaFile(transcriptId).catch(() => null);
+  setMediaFile(stored);
 }
 
 export async function attachMedia(file: File): Promise<void> {
   if (!state.activeId) return;
   await workspace().setMediaPath(state.activeId, file.name);
+  await saveMediaFile(state.activeId, file).catch(() => {});
   setState("transcript", "sourceMediaPath", file.name);
   setMediaFile(file);
   setMediaHidden(false);
@@ -218,7 +231,10 @@ export async function importVttFile(file: File, mediaFile?: File | null): Promis
     );
     await refreshTranscripts();
     await openTranscript(transcriptId);
-    if (mediaFile) setMediaFile(mediaFile);
+    if (mediaFile) {
+      await saveMediaFile(transcriptId, mediaFile).catch(() => {});
+      setMediaFile(mediaFile);
+    }
   } finally {
     setState("importing", false);
   }
