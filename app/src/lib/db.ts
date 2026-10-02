@@ -116,6 +116,8 @@ export interface Workspace {
     transcriptId: string;
     startSegmentId: string;
     endSegmentId: string;
+    startCharOffset: number;
+    endCharOffset: number;
     startMs: number;
     endMs: number;
     highlightText: string;
@@ -524,13 +526,14 @@ async function openWorkspace(): Promise<Workspace> {
           note, properties, created_at, updated_at
         ) VALUES (
           '${id}', '${input.transcriptId}', 'highlight',
-          '${input.startSegmentId}', '${input.endSegmentId}', 0, 0,
+          '${input.startSegmentId}', '${input.endSegmentId}',
+          ${input.startCharOffset}, ${input.endCharOffset},
           ${input.startMs}, ${input.endMs}, ${esc(input.highlightText)},
           NULL, NULL, CAST(now() AS TIMESTAMP), CAST(now() AS TIMESTAMP)
         )
       `);
-      return id;
       await checkpoint();
+      return id;
     },
 
     async updateAnnotationNote(annotationId, note) {
@@ -583,8 +586,8 @@ async function openWorkspace(): Promise<Workspace> {
         VALUES ('${annotationId}', '${tagId}')
         ON CONFLICT DO NOTHING
       `);
-      return { tagId, name, color: null };
       await checkpoint();
+      return { tagId, name, color: null };
     },
 
     async removeTag(annotationId, tagId) {

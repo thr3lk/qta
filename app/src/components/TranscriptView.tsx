@@ -5,15 +5,16 @@ import {
   closeChooser,
   createHighlight,
   goToAnnotation,
-  goToSegment,
   openChooser,
   renameSpeaker,
+  goToSegment,
   selectAnnotation,
   segmentIndexById,
   speakerDisplayName,
   state,
 } from "../lib/store";
 import { annotationColor } from "../lib/colors";
+import { coverRange, splitAtoms } from "../lib/highlight";
 
 interface Turn {
   speaker: SpeakerRow | null;
@@ -41,12 +42,35 @@ function HighlightLayers(props: {
   text: string;
   segmentId: string;
 }) {
+  const atoms = createMemo(() =>
+    splitAtoms(
+      props.text,
+      props.annotations.map((ann) =>
+        coverRange(ann, props.segmentId, props.text.length),
+      ),
+    ),
+  );
+  const byId = createMemo(() =>
+    new Map(props.annotations.map((a) => [a.annotationId, a])),
+  );
   return (
     <Show
       when={props.annotations.length > 0}
       fallback={<span>{props.text}</span>}
     >
-      <Layer anns={props.annotations} depth={0} text={props.text} segmentId={props.segmentId} />
+      <For each={atoms()}>
+        {(atom) => {
+          const stack = () =>
+            atom.ids
+              .map((id) => byId().get(id))
+              .filter((a): a is AnnotationRow => a !== undefined);
+          return (
+            <Show when={stack().length > 0} fallback={<span>{atom.text}</span>}>
+              <Layer anns={stack()} depth={0} text={atom.text} segmentId={props.segmentId} />
+            </Show>
+          );
+        }}
+      </For>
     </Show>
   );
 }
@@ -123,14 +147,48 @@ function SpeakerLabel(props: { speaker: SpeakerRow | null }) {
 }
 
 export default function TranscriptView(props: {
-  pendingHighlight: { lo: number; hi: number; rectTop: number; rectLeft: number } | null;
-  setPendingHighlight: (p: { lo: number; hi: number; rectTop: number; rectLeft: number } | null) => void;
+  pendingHighlight: {
+    lo: number;
+    hi: number;
+    startChar: number;
+    endChar: number;
+    rectTop: number;
+    rectLeft: number;
+  } | null;
+  setPendingHighlight: (
+    p: {
+      lo: number;
+      hi: number;
+      startChar: number;
+      endChar: number;
+      rectTop: number;
+      rectLeft: number;
+    } | null,
+  ) => void;
 }) {
   const idxMap = () => segmentIndexById();
 
   const segmentEl = (node: Node | null): HTMLElement | null => {
     const el = node instanceof HTMLElement ? node : node?.parentElement ?? null;
     return el?.closest<HTMLElement>("[data-segment-id]") ?? null;
+  };
+
+  const charOffsetInSegment = (
+    segmentEl: HTMLElement,
+    container: Node,
+    offset: number,
+  ): number => {
+    const walker = document.createTreeWalker(segmentEl, NodeFilter.SHOW_TEXT);
+    const first = walker.nextNode();
+    if (!first) return 0;
+    const r = document.createRange();
+    try {
+      r.setStart(first, 0);
+      r.setEnd(container, offset);
+    } catch {
+      return 0;
+    }
+    return r.toString().length;
   };
 
   const updatePending = () => {
@@ -156,6 +214,8 @@ export default function TranscriptView(props: {
     props.setPendingHighlight({
       lo: Math.min(startIdx, endIdx),
       hi: Math.max(startIdx, endIdx),
+      startChar: charOffsetInSegment(startEl, range.startContainer, range.startOffset),
+      endChar: charOffsetInSegment(endEl, range.endContainer, range.endOffset),
       rectTop: rect.top,
       rectLeft: rect.left + rect.width / 2,
     });
@@ -191,7 +251,12 @@ export default function TranscriptView(props: {
   const createFromPending = () => {
     const pending = props.pendingHighlight;
     if (!pending) return;
-    void createHighlight(pending.lo, pending.hi);
+    void createHighlight(
+      pending.lo,
+      pending.hi,
+      pending.startChar,
+      pending.endChar,
+    );
     window.getSelection()?.removeAllRanges();
     props.setPendingHighlight(null);
   };

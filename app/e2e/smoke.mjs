@@ -211,6 +211,39 @@ if (!m.paused) await fail("plain segment click in go-to mode should not autoplay
 if (Math.abs(m.t - 31.39) > 2) await fail(`plain segment go-to expected ~31.39s, got ${m.t}`);
 console.log("plain segment click mode ok");
 
+// 3c. sub-segment highlight: partial selection inside one segment
+const partial = await page.evaluate(() => {
+  const seg = document.querySelectorAll('[data-testid="segment"]')[3];
+  const walker = document.createTreeWalker(seg, NodeFilter.SHOW_TEXT);
+  const node = walker.nextNode();
+  const range = document.createRange();
+  range.setStart(node, 5);
+  range.setEnd(node, 20);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  document.querySelector('[data-testid="transcript-pane"]')
+    .dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 300, clientY: 300 }));
+  return seg.textContent.slice(5, 20);
+});
+await page.waitForSelector('[data-testid="highlight-button"]', { timeout: 10000 });
+await page.click('[data-testid="highlight-button"]');
+await page.waitForFunction(
+  () => document.querySelectorAll('[data-testid="tray-card"]').length === 3,
+  { timeout: 10000 },
+);
+// only chars 5-20 of segment 3 carry the underline
+const rendered = await page.evaluate(() => {
+  const seg = document.querySelectorAll('[data-testid="segment"]')[3];
+  return Array.from(seg.querySelectorAll(".hl"))
+    .map((s) => s.textContent)
+    .join("|");
+});
+if (rendered !== partial) {
+  await fail(`partial highlight rendered "${rendered}", expected "${partial}"`);
+}
+console.log("sub-segment highlight ok");
+
 // 4. persistence: full browser restart
 await ctx.close();
 const ctx2 = await chromium.launchPersistentContext(userDataDir, {
@@ -311,7 +344,7 @@ console.log(`export ok: ${download.suggestedFilename()}, ${csv.split("\n").lengt
 await page3.click('[data-testid="tab-library"]');
 await page3.waitForSelector('[data-testid="library-row"]', { timeout: 60000 });
 await page3.waitForFunction(
-  () => document.querySelector('[data-testid="library-counts"]')?.textContent.includes("2 highlights"),
+  () => document.querySelector('[data-testid="library-counts"]')?.textContent.includes("3 highlights"),
   { timeout: 15000 },
 );
 const counts = await page3.textContent('[data-testid="library-counts"]');

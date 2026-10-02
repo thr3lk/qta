@@ -16,6 +16,7 @@ import {
   saveMediaFile,
 } from "./mediaStore";
 import { guessParticipantName, guessSessionDatetime, parseVtt } from "./vtt";
+import { highlightText, resolveSpan } from "./highlight";
 
 export interface AppState {
   phase: "loading" | "welcome" | "ready";
@@ -253,21 +254,22 @@ function clearFlashSoon(): void {
 export async function createHighlight(
   startIdx: number,
   endIdx: number,
+  startChar: number,
+  endChar: number,
 ): Promise<void> {
-  const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
-  const startSeg = state.segments[lo];
-  const endSeg = state.segments[hi];
+  const span = resolveSpan(startIdx, endIdx, startChar, endChar, state.segments);
+  const startSeg = state.segments[span.lo];
+  const endSeg = state.segments[span.hi];
   if (!startSeg || !endSeg || !state.activeId) return;
   const newId = await workspace().createAnnotation({
     transcriptId: state.activeId,
     startSegmentId: startSeg.segmentId,
     endSegmentId: endSeg.segmentId,
+    startCharOffset: span.startChar,
+    endCharOffset: span.endChar,
     startMs: startSeg.startMs,
     endMs: endSeg.endMs,
-    highlightText: state.segments
-      .slice(lo, hi + 1)
-      .map((s) => s.text)
-      .join("\n"),
+    highlightText: highlightText(state.segments, span),
   });
   await reloadAnnotations();
   selectAnnotation(newId);

@@ -20,6 +20,8 @@ import { downloadBytes, exportFileName } from "./lib/export";
 type PendingHighlight = {
   lo: number;
   hi: number;
+  startChar: number;
+  endChar: number;
   rectTop: number;
   rectLeft: number;
 } | null;
